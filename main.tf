@@ -16,6 +16,11 @@ data "aws_subnet_ids" "default" {
   vpc_id = data.aws_vpc.default.id
 }
 
+resource "aws_key_pair" "terraform_key" {
+  key_name = "terraform-key"
+  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDjWlJJQU3a67GSFJ25CmbbYhpXUZpr3a7ZeiQyu0E6+A0nOmlqA65HvFkmEqMW9tSIU+o7TpsI2drmzXMAuvZZKjm6FkJ8Tp68b5yXvSpeVXYpwFz7lo5peYYSrMWZs2q7nz4IB7QHJFz9etwEUUCKLBAk8s7qKUAFU6GtC3eJ3FrBMIvLpQQ1k37vCav1KUN8cPHv4gSw2HrB+0Dm7zSapU0JDueYue68suJPlHgLuqGc31RZ9hx57LN6jeaoIWOlhiUjy62RJQxDoxhrFzP1gg4zYSa0/OEDLiRI6ztuX3j8gjER8QftcTIV8nu5J9+LQOtbr+HjPhJ2bLhLu3x9 root@nta-centos7-primary"
+}
+
 resource "aws_lb" "example" {
   name                  = "terraform-asg-example"
   load_balancer_type    = "application"
@@ -78,14 +83,16 @@ resource "aws_lb_target_group" "asg" {
 }
 
 resource "aws_launch_configuration" "example" {
-  image_id      = "ami-03e1b45d613694374"
+  # Created private image with Ubuntu and Hello, World index file
+  image_id      = "ami-07ebfd5b3428b6f4d"
   instance_type = "t2.micro"
-  security_groups    = [aws_security_group.instance.id]
+  security_groups    = [aws_security_group.instance-www.id, aws_security_group.instance-ssh.id]
+  key_name           = "terraform-key"
 
   user_data = <<-EOF
             #!/bin/bash
-            echo "Hello, World" > index.html
-            nohup busybox httdp -f -p ${var.server_port} &
+            echo "Hello, World!" > index.html
+            nohup busybox httpd -f -p ${var.server_port} &
             EOF
 
   lifecycle {
@@ -101,7 +108,7 @@ resource "aws_autoscaling_group" "example" {
   health_check_type = "ELB"
 
   min_size  = 2
-  max_size  = 10
+  max_size  = 2
 
   tag {
     key                 = "Name"
@@ -110,8 +117,8 @@ resource "aws_autoscaling_group" "example" {
   }
 }
 
-resource "aws_security_group" "instance" {
-  name = "terraform-example-instance"
+resource "aws_security_group" "instance-www" {
+  name = "terraform-example-instance-www"
 
   ingress {
     from_port   = var.server_port
@@ -120,6 +127,18 @@ resource "aws_security_group" "instance" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
+
+resource "aws_security_group" "instance-ssh" {
+  name = "terraform-example-instance-ssh"
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
 
 resource "aws_lb_listener_rule" "asg" {
   listener_arn  = aws_lb_listener.http.arn
